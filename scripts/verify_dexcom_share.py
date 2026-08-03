@@ -32,16 +32,23 @@ from tconnectsync.api.common import ApiException  # noqa: E402
 def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-8s %(message)s")
 
+    region = os.environ.get("DEXCOM_SHARE_REGION", "US")
+    if not os.environ.get("DEXCOM_SHARE_USERNAME"):
+        print("If you log in to Dexcom with a phone number, it must be in full")
+        print("international format: '+', country code, number, no leading 0")
+        print("(e.g. a German number 0151 23456789 -> +4915123456789).\n")
     username = os.environ.get("DEXCOM_SHARE_USERNAME") or input("Dexcom Share username: ")
     password = os.environ.get("DEXCOM_SHARE_PASSWORD") or getpass.getpass("Dexcom Share password (not echoed): ")
-    region = os.environ.get("DEXCOM_SHARE_REGION", "US")
 
     print(f"\nLogging in to Dexcom Share ({region} region)...")
     try:
         api = DexcomShareApi(username, password, region)
     except ApiException as e:
         print(f"\nLOGIN FAILED: {e}")
-        print("If this is a 500/403, the endpoint or request shape may have changed.")
+        print("If the error code is AccountPasswordInvalid despite correct credentials, check:")
+        print("  - phone number username in full international format (see above)")
+        print("  - at least one follower configured under Share/Follow in the Dexcom app")
+        print("  - DEXCOM_SHARE_REGION is correct for your account (OUS for Germany/Europe)")
         return 1
 
     print("Login succeeded.\n")
