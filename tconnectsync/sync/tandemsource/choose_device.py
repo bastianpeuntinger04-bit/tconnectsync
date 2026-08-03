@@ -19,7 +19,11 @@ class ChooseDevice:
             raise NoDevicesFound('No pumps are present on your Tandem Source account')
 
         serialNumberToPump = {p['serialNumber']: p for p in pumpEventMetadata}
-        logger.info(f'Found {len(serialNumberToPump)} pumps: {serialNumberToPump.keys()}')
+        pump_summary = ', '.join(
+            f"{p.get('serialNumber')} [{p.get('modelName', 'unknown model')}] (last seen: {p.get('maxDateOfEvents')})"
+            for p in pumpEventMetadata
+        )
+        logger.info(f'Found {len(serialNumberToPump)} pumps on account: {pump_summary}')
 
         tconnectDevice = None
 
@@ -43,7 +47,7 @@ class ChooseDevice:
             except Exception as e:
                 logger.debug(f"Could not parse maxDateOfEvents to check for staleness: {e}")
 
-            logger.info(f'Using pump with serial: {tconnectDevice["serialNumber"]} (deviceId: {tconnectDevice["assignmentId"]}, last seen: {tconnectDevice["maxDateOfEvents"]})')
+            logger.info(f'Using pump with serial: {tconnectDevice["serialNumber"]} [{tconnectDevice.get("modelName", "unknown model")}] (deviceId: {tconnectDevice["assignmentId"]}, last seen: {tconnectDevice["maxDateOfEvents"]}) -- selected because PUMP_SERIAL_NUMBER is explicitly configured')
         else:
             # The BFF device list includes pumps that have never uploaded
             # (maxDateOfEvents is None); skip those when picking the most
@@ -61,7 +65,7 @@ class ChooseDevice:
             if not tconnectDevice:
                 tconnectDevice = pumpEventMetadata[0]
 
-            logger.info(f'Using most recent pump (serial: {tconnectDevice["serialNumber"]}, deviceId: {tconnectDevice["assignmentId"]}, last seen: {tconnectDevice["maxDateOfEvents"]})')
+            logger.info(f'Using most recent pump (serial: {tconnectDevice["serialNumber"]} [{tconnectDevice.get("modelName", "unknown model")}], deviceId: {tconnectDevice["assignmentId"]}, last seen: {tconnectDevice["maxDateOfEvents"]}) -- selected because PUMP_SERIAL_NUMBER is not set (auto-select by most recent activity)')
 
 
         return tconnectDevice
