@@ -264,16 +264,21 @@ class TandemSourceApi:
             return True
 
         with base_session() as s:
+            logger.info("LOGIN STEP 0: GET %s" % self.LOGIN_PAGE_URL)
             initial = s.get(self.LOGIN_PAGE_URL, headers=base_headers())
+            logger.info("LOGIN STEP 0 response: url=%s status=%s content-type=%s" % (
+                self.LOGIN_PAGE_URL, initial.status_code, initial.headers.get('Content-Type')))
 
             data = {
                 "username": email,
                 "password": password
             }
 
+            logger.info("LOGIN STEP 1: POST %s" % self.LOGIN_API_URL)
             req = s.post(self.LOGIN_API_URL, json=data, headers={'Referer': self.LOGIN_PAGE_URL, **base_headers()}, allow_redirects=False)
+            logger.info("LOGIN STEP 1 response: url=%s status=%s content-type=%s" % (
+                self.LOGIN_API_URL, req.status_code, req.headers.get('Content-Type')))
 
-            logger.debug("1. made POST to LOGIN_API")
             # {"redirectUrl":"/","status":"SUCCESS"}
             if req.status_code != 200:
                 raise ApiException(req.status_code, 'Error sending POST to login_api_url: %s' % req.text)
@@ -319,13 +324,14 @@ class TandemSourceApi:
                 'code_challenge_method': 'S256',
             }
 
-            logger.debug("3. calling oidc_step1 with %s" % json.dumps(oidc_step1_params))
+            logger.info("LOGIN STEP 2: GET %s" % authorization_endpoint)
             oidc_step1 = s.get(
                 authorization_endpoint + '?' + urllib.parse.urlencode(oidc_step1_params),
                 headers={'Referer': self.LOGIN_PAGE_URL, **base_headers()},
                 allow_redirects=True
             )
-
+            logger.info("LOGIN STEP 2 response: url=%s status=%s content-type=%s" % (
+                authorization_endpoint, oidc_step1.status_code, oidc_step1.headers.get('Content-Type')))
 
             if oidc_step1.status_code // 100 != 2:
                 raise ApiException(oidc_step1.status_code, 'Got unexpected status code for oidc step1: %s' % oidc_step1.text)
@@ -345,15 +351,17 @@ class TandemSourceApi:
                 'code_verifier': code_verifier,
             }
 
-            logger.debug("4. calling oidc_step2 with %s" % json.dumps(oidc_step2_token_data))
-
+            logger.info("LOGIN STEP 3: POST %s" % token_endpoint)
             oidc_step2 = s.post(token_endpoint, data=oidc_step2_token_data, headers={
                 'Content-Type': 'application/x-www-form-urlencoded',
                 **base_headers()
             })
+            logger.info("LOGIN STEP 3 response: url=%s status=%s content-type=%s" % (
+                token_endpoint, oidc_step2.status_code, oidc_step2.headers.get('Content-Type')))
 
             if oidc_step2.status_code//100 != 2:
-                raise ApiException(oidc_step1.status_code, 'Got unexpected status code for oidc step2: %s' % oidc_step1.text)
+                # Was previously (bug) reporting oidc_step1's status/body here instead of oidc_step2's own.
+                raise ApiException(oidc_step2.status_code, 'Got unexpected status code for oidc step2: %s' % oidc_step2.text)
 
             oidc_json = oidc_step2.json()
             logger.debug("5. parsing oidc_step2 json response: %s" % json.dumps(oidc_json))
@@ -380,8 +388,27 @@ class TandemSourceApi:
         logger.debug("6. extracting JWT from %s" % self.idToken)
         id_token = self.idToken
 
+        logger.info("LOGIN STEP 4: GET %s" % self.TDC_OIDC_JWKS_URL)
         jwks_response = self.loginSession.get(self.TDC_OIDC_JWKS_URL)
-        jwks = jwks_response.json()
+        logger.info("LOGIN STEP 4 response: url=%s status=%s content-type=%s" % (
+            self.TDC_OIDC_JWKS_URL, jwks_response.status_code, jwks_response.headers.get('Content-Type')))
+
+        if jwks_response.status_code // 100 != 2:
+            raise ApiException(
+                jwks_response.status_code,
+                'Got unexpected status code for JWKS request: url=%s status=%s body[:300]=%s' % (
+                    self.TDC_OIDC_JWKS_URL, jwks_response.status_code, jwks_response.text[:300])
+            )
+
+        try:
+            jwks = jwks_response.json()
+        except ValueError as e:
+            raise ApiException(
+                jwks_response.status_code,
+                'Could not parse JWKS response as JSON: url=%s status=%s content-type=%s body[:300]=%s (%s)' % (
+                    self.TDC_OIDC_JWKS_URL, jwks_response.status_code, jwks_response.headers.get('Content-Type'),
+                    jwks_response.text[:300], e)
+            )
         public_keys = {}
         for jwk in jwks['keys']:
             kid = jwk['kid']
