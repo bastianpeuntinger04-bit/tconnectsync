@@ -23,6 +23,8 @@ import os
 import sys
 from pathlib import Path
 
+import arrow
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tconnectsync.api.dexcomshare import DexcomShareApi, parse_dexcom_date  # noqa: E402
@@ -67,9 +69,10 @@ def main():
     print(f"Got {len(readings)} reading(s). Most recent:")
     latest = readings[0]
     ts_ms = parse_dexcom_date(latest["WT"])
+    local_time = arrow.get(ts_ms / 1000.0).to("local")
     print(f"  Value:  {latest['Value']} mg/dL")
     print(f"  Trend:  {latest['Trend']}")
-    print(f"  Time:   {ts_ms} ms since epoch")
+    print(f"  Time:   {local_time.format('YYYY-MM-DD HH:mm:ss ZZ')} ({local_time.humanize()}, {ts_ms} ms since epoch)")
     print("\nRaw first reading (for shape verification):")
     print(f"  {latest}")
 
