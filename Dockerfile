@@ -12,7 +12,14 @@ ENV PYTHONFAULTHANDLER 1
 FROM base AS python-deps
 
 # Install pipenv and compilation dependencies
-RUN pip install pipenv
+# Pinned: pipenv 2026.7.0 (released 2026-08-03) fails to install certifi as a
+# transitive dependency under `pipenv install --deploy`, which builds a
+# container that raises ModuleNotFoundError on the first `import requests`.
+# It also computes the Pipfile hash differently from 2026.6.2 and earlier,
+# which independently breaks --deploy's hash check against Pipfile.lock.
+# 2026.6.2 was stable for ~2 months before that release; re-check this pin
+# once a fixed pipenv release is out.
+RUN pip install pipenv==2026.6.2
 RUN apt-get update && apt-get install -y --no-install-recommends gcc
 
 RUN mkdir -p /base
