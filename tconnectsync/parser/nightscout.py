@@ -4,6 +4,10 @@ from ..domain.tandemsource.pump_settings import PumpProfile, PumpSettings
 from ..secret import TIMEZONE_NAME, NIGHTSCOUT_PROFILE_CARBS_HR_VALUE, NIGHTSCOUT_PROFILE_DELAY_VALUE
 
 ENTERED_BY = "Pump (tconnectsync)"
+# Distinct device id for the CGM_DEXCOM_SHARE feature, so its entries are
+# deduplicated (via last_uploaded_bg_entry) independently of the CGM feature,
+# which relays Dexcom readings through the pump under ENTERED_BY instead.
+DEXCOM_SHARE_ENTERED_BY = "Dexcom Share (tconnectsync)"
 
 BASAL_EVENTTYPE = "Temp Basal"
 BOLUS_EVENTTYPE = "Combo Bolus"
@@ -82,16 +86,19 @@ class NightscoutEntry:
         }
 
     @staticmethod
-    def entry(sgv, created_at, pump_event_id=""):
-        return {
+    def entry(sgv, created_at, pump_event_id="", device=ENTERED_BY, direction=None):
+        data = {
             "type": "sgv",
             "sgv": int(sgv),
             "date": int(1000 * arrow.get(created_at).timestamp()),
             "dateString": arrow.get(created_at).strftime('%Y-%m-%dT%H:%M:%S%z'),
-            "device": ENTERED_BY,
+            "device": device,
             "pump_event_id": pump_event_id,
-            # delta, direction are undefined
+            # delta is undefined
         }
+        if direction:
+            data["direction"] = direction
+        return data
 
     @staticmethod
     def sitechange(created_at, reason="", pump_event_id=""):
