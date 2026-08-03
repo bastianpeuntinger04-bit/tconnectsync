@@ -5,7 +5,7 @@ from typing import List, Optional, TypedDict
 
 import requests
 
-from .common import ApiException, ApiLoginException, base_headers
+from .common import ApiException, ApiLoginException
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +53,15 @@ class DexcomShareApi:
     Dexcom Follow app and reused by most third-party Nightscout bridges).
     Not affiliated with or verified by Dexcom; endpoints may change without
     notice.
+
+    Deliberately mirrors pydexcom (github.com/gagebenne/pydexcom) -- the
+    actively-maintained reference implementation of this API -- in the
+    details that are easy to get subtly wrong and hard to diagnose from the
+    outside: a single persistent `requests.Session` for the whole login
+    flow (Dexcom's infrastructure may key off cookie continuity between the
+    two login calls) and the exact header set (a browser-spoofing
+    User-Agent, present in this project's other API clients, is a
+    plausible bot-detection signal that has no reason to be sent here).
     """
 
     _BASE_URLS = {
@@ -60,6 +69,8 @@ class DexcomShareApi:
         "OUS": "https://shareous1.dexcom.com/ShareWebServices/Services",
         "JP": "https://share.dexcom.jp/ShareWebServices/Services",
     }
+
+    _HEADERS = {"Accept-Encoding": "application/json"}
 
     def __init__(self, username: str, password: str, region: str = "US") -> None:
         self.username = username
@@ -70,14 +81,11 @@ class DexcomShareApi:
         self.base_url = self._BASE_URLS[self.region]
         self.application_id = APPLICATION_ID_JP if self.region == "JP" else APPLICATION_ID_DEFAULT
         self.session_id: Optional[str] = None
+        self._session = requests.Session()
         self.login()
 
-    def _headers(self) -> dict:
-        return {
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            **base_headers(),
-        }
+    def _post(self, path: str, json: Optional[dict] = None, params: Optional[dict] = None) -> requests.Response:
+        return self._session.post(self.base_url + path, headers=self._HEADERS, json=json, params=params)
 
     @staticmethod
     def _error_detail(r: requests.Response) -> str:
@@ -107,28 +115,26 @@ class DexcomShareApi:
         return session_id
 
     def _authenticate_account(self) -> str:
-        r = requests.post(
-            self.base_url + "/General/AuthenticatePublisherAccount",
+        r = self._post(
+            "/General/AuthenticatePublisherAccount",
             json={
                 "accountName": self.username,
                 "password": self.password,
                 "applicationId": self.application_id,
             },
-            headers=self._headers(),
         )
         if r.status_code != 200:
             raise ApiLoginException(r.status_code, "Dexcom Share AuthenticatePublisherAccount failed: %s" % self._error_detail(r))
         return r.json()
 
     def _login_by_account_id(self, account_id: str) -> str:
-        r = requests.post(
-            self.base_url + "/General/LoginPublisherAccountById",
+        r = self._post(
+            "/General/LoginPublisherAccountById",
             json={
                 "accountId": account_id,
                 "password": self.password,
                 "applicationId": self.application_id,
             },
-            headers=self._headers(),
         )
         if r.status_code != 200:
             raise ApiLoginException(r.status_code, "Dexcom Share LoginPublisherAccountById failed: %s" % self._error_detail(r))
@@ -141,14 +147,13 @@ class DexcomShareApi:
             self.login()
 
         def _request() -> requests.Response:
-            return requests.post(
-                self.base_url + "/Publisher/ReadPublisherLatestGlucoseValues",
+            return self._post(
+                "/Publisher/ReadPublisherLatestGlucoseValues",
                 params={
                     "sessionId": self.session_id,
                     "minutes": minutes,
                     "maxCount": max_count,
                 },
-                headers=self._headers(),
             )
 
         r = _request()
