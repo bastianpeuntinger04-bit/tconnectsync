@@ -9,10 +9,15 @@ from .common import ApiException, ApiLoginException, base_headers
 
 logger = logging.getLogger(__name__)
 
-# Public application id used by third-party Dexcom Share integrations
-# (e.g. nightscout-connect, xDrip+). Not a secret -- Dexcom Share
-# authenticates the *account*, this only identifies the calling app.
-APPLICATION_ID = "d8665ade-9673-4e27-9ff6-92db4ce13d13"
+# Dexcom Share application ids, keyed by region. Verified against the
+# actively-maintained pydexcom client (github.com/gagebenne/pydexcom), the
+# de facto reference implementation for this undocumented API: the same id
+# is used for both US and OUS (incl. Europe/Germany) accounts, while Japan
+# has always used a separate one. Using the wrong id does not produce a
+# clear "wrong application" error -- Dexcom rejects it as an ordinary
+# AccountPasswordInvalid, indistinguishable from a real bad password.
+APPLICATION_ID_DEFAULT = "d89443d2-327c-4a6f-89e5-496bbb0317db"  # US, OUS
+APPLICATION_ID_JP = "d8665ade-9673-4e27-9ff6-92db4ce13d13"  # Japan only
 
 EMPTY_SESSION_ID = "00000000-0000-0000-0000-000000000000"
 
@@ -50,14 +55,20 @@ class DexcomShareApi:
     notice.
     """
 
-    _US_BASE_URL = "https://share2.dexcom.com/ShareWebServices/Services"
-    _OUS_BASE_URL = "https://shareous1.dexcom.com/ShareWebServices/Services"
+    _BASE_URLS = {
+        "US": "https://share2.dexcom.com/ShareWebServices/Services",
+        "OUS": "https://shareous1.dexcom.com/ShareWebServices/Services",
+        "JP": "https://share.dexcom.jp/ShareWebServices/Services",
+    }
 
     def __init__(self, username: str, password: str, region: str = "US") -> None:
         self.username = username
         self.password = password
         self.region = (region or "US").upper()
-        self.base_url = self._US_BASE_URL if self.region == "US" else self._OUS_BASE_URL
+        if self.region not in self._BASE_URLS:
+            raise ValueError("Invalid Dexcom Share region '%s'. Must be one of %s." % (region, sorted(self._BASE_URLS)))
+        self.base_url = self._BASE_URLS[self.region]
+        self.application_id = APPLICATION_ID_JP if self.region == "JP" else APPLICATION_ID_DEFAULT
         self.session_id: Optional[str] = None
         self.login()
 
@@ -67,6 +78,21 @@ class DexcomShareApi:
             "Accept": "application/json",
             **base_headers(),
         }
+
+    @staticmethod
+    def _error_detail(r: requests.Response) -> str:
+        """Dexcom Share returns structured {"Code": ..., "Message": ...}
+        error bodies. Surface the Code prominently -- it's the single most
+        useful diagnostic (e.g. AccountPasswordInvalid, SessionNotValid,
+        SSO_AuthenticateMaxAttemptsExceeded) and easy to miss buried in a
+        raw response body."""
+        try:
+            body = r.json()
+            if isinstance(body, dict) and "Code" in body:
+                return "%s: %s" % (body.get("Code"), body.get("Message"))
+        except ValueError:
+            pass
+        return r.text
 
     def login(self) -> str:
         logger.info("Logging in to Dexcom Share (%s region)..." % self.region)
@@ -86,12 +112,12 @@ class DexcomShareApi:
             json={
                 "accountName": self.username,
                 "password": self.password,
-                "applicationId": APPLICATION_ID,
+                "applicationId": self.application_id,
             },
             headers=self._headers(),
         )
         if r.status_code != 200:
-            raise ApiLoginException(r.status_code, "Dexcom Share AuthenticatePublisherAccount failed: %s" % r.text)
+            raise ApiLoginException(r.status_code, "Dexcom Share AuthenticatePublisherAccount failed: %s" % self._error_detail(r))
         return r.json()
 
     def _login_by_account_id(self, account_id: str) -> str:
@@ -100,12 +126,12 @@ class DexcomShareApi:
             json={
                 "accountId": account_id,
                 "password": self.password,
-                "applicationId": APPLICATION_ID,
+                "applicationId": self.application_id,
             },
             headers=self._headers(),
         )
         if r.status_code != 200:
-            raise ApiLoginException(r.status_code, "Dexcom Share LoginPublisherAccountById failed: %s" % r.text)
+            raise ApiLoginException(r.status_code, "Dexcom Share LoginPublisherAccountById failed: %s" % self._error_detail(r))
         return r.json()
 
     def get_latest_glucose_values(self, minutes: int = 1440, max_count: int = 288) -> List[DexcomGlucoseReading]:
@@ -133,6 +159,6 @@ class DexcomShareApi:
             r = _request()
 
         if r.status_code != 200:
-            raise ApiException(r.status_code, "Dexcom Share ReadPublisherLatestGlucoseValues failed: %s" % r.text)
+            raise ApiException(r.status_code, "Dexcom Share ReadPublisherLatestGlucoseValues failed: %s" % self._error_detail(r))
 
         return r.json() or []

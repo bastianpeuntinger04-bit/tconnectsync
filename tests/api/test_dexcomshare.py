@@ -3,7 +3,12 @@
 import unittest
 import requests_mock
 
-from tconnectsync.api.dexcomshare import DexcomShareApi, parse_dexcom_date
+from tconnectsync.api.dexcomshare import (
+    DexcomShareApi,
+    parse_dexcom_date,
+    APPLICATION_ID_DEFAULT,
+    APPLICATION_ID_JP,
+)
 from tconnectsync.api.common import ApiException, ApiLoginException
 
 ACCOUNT_ID = "11111111-2222-3333-4444-555555555555"
@@ -16,6 +21,9 @@ US_VALUES_URL = "https://share2.dexcom.com/ShareWebServices/Services/Publisher/R
 
 OUS_AUTH_URL = "https://shareous1.dexcom.com/ShareWebServices/Services/General/AuthenticatePublisherAccount"
 OUS_LOGIN_URL = "https://shareous1.dexcom.com/ShareWebServices/Services/General/LoginPublisherAccountById"
+
+JP_AUTH_URL = "https://share.dexcom.jp/ShareWebServices/Services/General/AuthenticatePublisherAccount"
+JP_LOGIN_URL = "https://share.dexcom.jp/ShareWebServices/Services/General/LoginPublisherAccountById"
 
 
 def register_login(m, auth_url=US_AUTH_URL, login_url=US_LOGIN_URL, session_id=SESSION_ID):
@@ -71,6 +79,43 @@ class TestDexcomShareApiLogin(unittest.TestCase):
             m.post(US_LOGIN_URL, status_code=401, text="Unauthorized")
             with self.assertRaises(ApiLoginException):
                 DexcomShareApi("user", "pass", "US")
+
+    def test_invalid_region_raises_value_error(self):
+        with self.assertRaises(ValueError):
+            DexcomShareApi("user", "pass", "DE")
+
+    def test_error_body_code_and_message_surfaced(self):
+        with requests_mock.Mocker() as m:
+            m.post(US_AUTH_URL, status_code=500, json={"Code": "AccountPasswordInvalid", "Message": "Password does not match."})
+            with self.assertRaisesRegex(ApiLoginException, "AccountPasswordInvalid: Password does not match."):
+                DexcomShareApi("user", "pass", "US")
+
+    def test_us_and_ous_use_same_application_id(self):
+        # Regression test: US and OUS (incl. Germany/Europe) must use the
+        # same application id -- using the JP-only id here produces a
+        # misleading AccountPasswordInvalid even with correct credentials.
+        for region, auth_url, login_url in [
+            ("US", US_AUTH_URL, US_LOGIN_URL),
+            ("OUS", OUS_AUTH_URL, OUS_LOGIN_URL),
+        ]:
+            with self.subTest(region=region), requests_mock.Mocker() as m:
+                register_login(m, auth_url=auth_url, login_url=login_url)
+                DexcomShareApi("user", "pass", region)
+
+                auth_body = m.request_history[0].json()
+                login_body = m.request_history[1].json()
+                self.assertEqual(auth_body["applicationId"], APPLICATION_ID_DEFAULT)
+                self.assertEqual(login_body["applicationId"], APPLICATION_ID_DEFAULT)
+                self.assertNotEqual(APPLICATION_ID_DEFAULT, APPLICATION_ID_JP)
+
+    def test_jp_region_uses_its_own_application_id_and_url(self):
+        with requests_mock.Mocker() as m:
+            register_login(m, auth_url=JP_AUTH_URL, login_url=JP_LOGIN_URL)
+            api = DexcomShareApi("user", "pass", "JP")
+
+            self.assertEqual(api.base_url, "https://share.dexcom.jp/ShareWebServices/Services")
+            auth_body = m.request_history[0].json()
+            self.assertEqual(auth_body["applicationId"], APPLICATION_ID_JP)
 
 
 class TestDexcomShareApiGetLatestGlucoseValues(unittest.TestCase):

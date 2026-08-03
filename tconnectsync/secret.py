@@ -88,8 +88,8 @@ NIGHTSCOUT_PROFILE_UPLOAD_MODE = get_one_of('NIGHTSCOUT_PROFILE_UPLOAD_MODE', 'a
 # instead reads Dexcom values relayed through the pump with a >30 min lag.
 DEXCOM_SHARE_USERNAME = get('DEXCOM_SHARE_USERNAME', '')
 DEXCOM_SHARE_PASSWORD = get('DEXCOM_SHARE_PASSWORD', '')
-# US: share2.dexcom.com. OUS ("outside US", most non-US countries): shareous1.dexcom.com.
-DEXCOM_SHARE_REGION = get_one_of('DEXCOM_SHARE_REGION', 'US', ['US', 'OUS'])
+# US: share2.dexcom.com. OUS ("outside US", incl. Europe/Germany): shareous1.dexcom.com. JP: share.dexcom.jp.
+DEXCOM_SHARE_REGION = get_one_of('DEXCOM_SHARE_REGION', 'US', ['US', 'OUS', 'JP'])
 DEXCOM_SHARE_MAX_COUNT = int(get_number('DEXCOM_SHARE_MAX_COUNT', '288')) # 288 = 24h at 5-minute readings
 
 # When set, all possible history log event types are fetched from Tandem Source

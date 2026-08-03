@@ -56,7 +56,7 @@ The following synchronization features can be optionally enabled:
   ```bash
   DEXCOM_SHARE_USERNAME='your-dexcom-username'
   DEXCOM_SHARE_PASSWORD='your-dexcom-password'
-  # OPTIONAL: US (default) or OUS (outside the US)
+  # OPTIONAL: US (default), OUS (outside the US, incl. Europe/Germany), or JP (Japan)
   DEXCOM_SHARE_REGION=US
   ```
   This uses an undocumented, reverse-engineered API (the same one relied on by most Nightscout Dexcom bridges); Dexcom may change it without notice.
