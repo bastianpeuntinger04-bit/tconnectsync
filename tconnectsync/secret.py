@@ -82,6 +82,16 @@ AUTOUPDATE_MAX_LOOP_INVOCATIONS = get_number('AUTOUPDATE_MAX_LOOP_INVOCATIONS', 
 
 NIGHTSCOUT_PROFILE_UPLOAD_MODE = get_one_of('NIGHTSCOUT_PROFILE_UPLOAD_MODE', 'add', ['add', 'replace'])
 
+# Dexcom Share credentials (separate Dexcom account, not the Tandem account).
+# Only required if the CGM_DEXCOM_SHARE feature is enabled. This is a
+# distinct, near-real-time CGM source from the CGM feature above, which
+# instead reads Dexcom values relayed through the pump with a >30 min lag.
+DEXCOM_SHARE_USERNAME = get('DEXCOM_SHARE_USERNAME', '')
+DEXCOM_SHARE_PASSWORD = get('DEXCOM_SHARE_PASSWORD', '')
+# US: share2.dexcom.com. OUS ("outside US", most non-US countries): shareous1.dexcom.com.
+DEXCOM_SHARE_REGION = get_one_of('DEXCOM_SHARE_REGION', 'US', ['US', 'OUS'])
+DEXCOM_SHARE_MAX_COUNT = int(get_number('DEXCOM_SHARE_MAX_COUNT', '288')) # 288 = 24h at 5-minute readings
+
 # When set, all possible history log event types are fetched from Tandem Source
 FETCH_ALL_EVENT_TYPES = get_bool('FETCH_ALL_EVENT_TYPES', 'false')
 

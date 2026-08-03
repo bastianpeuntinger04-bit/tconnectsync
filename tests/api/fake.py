@@ -9,3 +9,4 @@ class TConnectApi(tconnectsync.api.TConnectApi):
             self.with_credentials = False
 
     _tandemsource = None
+    _dexcomshare = None

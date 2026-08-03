@@ -16,6 +16,14 @@ class EventProcessor(Protocol):
     def process(self, events: Iterable, time_start: arrow.Arrow, time_end: arrow.Arrow) -> List[dict]: ...
     def write(self, ns_entries: List[dict]) -> int: ...
 
+class UpdaterProcessor(Protocol):
+    """Structural interface implemented by every Update* handler -- these run
+    once per cycle independent of the pump event stream (e.g. profile sync,
+    Dexcom Share polling), unlike EventProcessor above."""
+    def __init__(self, tconnect: "TConnectApi", nightscout: "NightscoutApi", tconnect_device_id: str, pretend: bool, features: List[str]) -> None: ...
+    def enabled(self) -> bool: ...
+    def update(self, pretend: bool) -> bool: ...
+
 from ...features import DEVICE_STATUS, DEFAULT_FEATURES
 from ...eventparser import events as eventtypes
 from ...domain.tandemsource.event_class import EventClass
@@ -31,6 +39,7 @@ from .process_cgm_reading import ProcessCGMReading
 from .process_device_status import ProcessDeviceStatus
 from .process_user_mode import ProcessUserMode
 from .update_profiles import UpdateProfiles
+from .update_dexcom_share import UpdateDexcomShare
 
 logger = logging.getLogger(__name__)
 
@@ -58,8 +67,9 @@ class ProcessTimeRange:
         EventClass.DEVICE_STATUS.name: ProcessDeviceStatus
     }
 
-    updater_classes = [
-        UpdateProfiles
+    updater_classes: List[Type[UpdaterProcessor]] = [
+        UpdateProfiles,
+        UpdateDexcomShare,
     ]
 
     def process(self, time_start: arrow.Arrow, time_end: arrow.Arrow) -> Tuple[int, Optional[int]]:

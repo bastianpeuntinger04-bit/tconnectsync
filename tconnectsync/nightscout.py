@@ -91,10 +91,10 @@ class NightscoutApi:
 			else:
 				raise e
 
-	def last_uploaded_bg_entry(self, time_start: Optional[DateLike] = None, time_end: Optional[DateLike] = None) -> Optional[dict]:
+	def last_uploaded_bg_entry(self, time_start: Optional[DateLike] = None, time_end: Optional[DateLike] = None, device: str = ENTERED_BY) -> Optional[dict]:
 		dateFilter = time_range('dateString', time_start, time_end)
 		try:
-			latest = requests.get(urljoin(self.url, 'api/v1/entries.json?count=1&find[device]=' + urllib.parse.quote(ENTERED_BY) + dateFilter + '&ts=' + str(time.time())), headers={
+			latest = requests.get(urljoin(self.url, 'api/v1/entries.json?count=1&find[device]=' + urllib.parse.quote(device) + dateFilter + '&ts=' + str(time.time())), headers={
 				'api-secret': hashlib.sha1(self.secret.encode()).hexdigest()
 			}, verify=self.verify)
 			if latest.status_code != 200:

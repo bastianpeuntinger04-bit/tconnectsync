@@ -52,6 +52,14 @@ These synchronization features are enabled by default:
 
 The following synchronization features can be optionally enabled:
 * `CGM`: Adds Dexcom CGM readings from the pump to Nightscout as SGV (sensor glucose value) entries. This should only be used in a situation where xDrip/Dexcom Share/etc. is not used and the pump connection to the CGM will be the only source of CGM data to Nightscout. **THIS WILL DELIVER CGM DATA WITH A SIGNIFICANT (>30 MINUTE) LAG AND SHOULD NOT BE USED AS A REPLACEMENT FOR DEXCOM SHARE OR OTHER REAL TIME MONITORING.**
+* `CGM_DEXCOM_SHARE`: Adds Dexcom CGM readings to Nightscout by polling the Dexcom Share API directly with a **separate Dexcom account** (not your Tandem account) -- the same API used by the Dexcom Follow app. Unlike `CGM` above, this is near-real-time (typically within a few minutes) since it does not wait for the reading to be relayed through the pump. Do not enable this alongside another CGM uploader (xDrip+, Dexcom Share bridge, etc.) pointed at the same Nightscout site, or you will get duplicate SGV entries. Requires:
+  ```bash
+  DEXCOM_SHARE_USERNAME='your-dexcom-username'
+  DEXCOM_SHARE_PASSWORD='your-dexcom-password'
+  # OPTIONAL: US (default) or OUS (outside the US)
+  DEXCOM_SHARE_REGION=US
+  ```
+  This uses an undocumented, reverse-engineered API (the same one relied on by most Nightscout Dexcom bridges); Dexcom may change it without notice.
 
 
 To specify custom synchronization features, pass the names of the desired features to the `--features` flag, e.g.:
