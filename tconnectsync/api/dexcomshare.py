@@ -21,12 +21,17 @@ APPLICATION_ID_JP = "d8665ade-9673-4e27-9ff6-92db4ce13d13"  # Japan only
 
 EMPTY_SESSION_ID = "00000000-0000-0000-0000-000000000000"
 
-_DATE_RE = re.compile(r"/Date\((\d+)(?:[+-]\d+)?\)/")
+# The live API returns bare 'Date(<ms>[+-]<tz>)', with no leading/trailing
+# slash (confirmed against a real account and pydexcom's own captured
+# example, both slash-less) -- unlike the classic ASP.NET '/Date(...)/ '
+# wrapper this was originally, incorrectly, modeled on. Slashes are matched
+# optionally so either form parses.
+_DATE_RE = re.compile(r"/?Date\((\d+)(?:[+-]\d+)?\)/?")
 
 
 def parse_dexcom_date(value: str) -> int:
-    """Parses a Dexcom Share WT/ST/DT field (e.g. '/Date(1462404576000)/' or
-    '/Date(1462404576000-0700)/') into a millisecond Unix timestamp."""
+    """Parses a Dexcom Share WT/ST/DT field (e.g. 'Date(1462404576000)' or
+    'Date(1462404576000-0700)') into a millisecond Unix timestamp."""
     m = _DATE_RE.match(value)
     if not m:
         raise ApiException(0, "Could not parse Dexcom Share date: %s" % value)
@@ -36,7 +41,7 @@ def parse_dexcom_date(value: str) -> int:
 class DexcomGlucoseReading(TypedDict):
     """One entry from ReadPublisherLatestGlucoseValues.
 
-    WT/ST/DT are '/Date(<epoch_ms>[+-]tz)/'-wrapped timestamps (Wall Time,
+    WT/ST/DT are 'Date(<epoch_ms>[+-]tz)'-wrapped timestamps (Wall Time,
     System Time, Display Time; WT is used here). Value is in mg/dL. Trend is
     one of Dexcom's named trend strings (e.g. 'Flat', 'FortyFiveUp',
     'DoubleDown', 'NotComputable', 'RateOutOfRange').

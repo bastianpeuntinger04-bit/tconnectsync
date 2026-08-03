@@ -25,9 +25,9 @@ class FakeDexcomShareApi:
 
 def reading(value, wt_ms, trend="Flat"):
     return {
-        "WT": "/Date(%d)/" % wt_ms,
-        "ST": "/Date(%d)/" % wt_ms,
-        "DT": "/Date(%d)/" % wt_ms,
+        "WT": "Date(%d)" % wt_ms,
+        "ST": "Date(%d)" % wt_ms,
+        "DT": "Date(%d)" % wt_ms,
         "Value": value,
         "Trend": trend,
     }

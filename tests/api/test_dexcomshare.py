@@ -32,14 +32,21 @@ def register_login(m, auth_url=US_AUTH_URL, login_url=US_LOGIN_URL, session_id=S
 
 
 class TestParseDexcomDate(unittest.TestCase):
+    # The live API returns the bare (slash-less) form; confirmed against a
+    # real account and pydexcom's own captured example output.
     def test_parses_plain_epoch(self):
-        self.assertEqual(parse_dexcom_date("/Date(1462404576000)/"), 1462404576000)
+        self.assertEqual(parse_dexcom_date("Date(1462404576000)"), 1462404576000)
 
     def test_parses_epoch_with_timezone_offset(self):
-        self.assertEqual(parse_dexcom_date("/Date(1462404576000-0700)/"), 1462404576000)
+        self.assertEqual(parse_dexcom_date("Date(1462404576000-0700)"), 1462404576000)
 
     def test_parses_epoch_with_positive_offset(self):
-        self.assertEqual(parse_dexcom_date("/Date(1462404576000+0200)/"), 1462404576000)
+        self.assertEqual(parse_dexcom_date("Date(1462404576000+0200)"), 1462404576000)
+
+    # The classic ASP.NET-style '/Date(...)/ ' wrapper is also accepted,
+    # since the format isn't documented and could vary by endpoint/version.
+    def test_also_accepts_slash_wrapped_form(self):
+        self.assertEqual(parse_dexcom_date("/Date(1462404576000)/"), 1462404576000)
 
     def test_raises_on_unparseable_value(self):
         with self.assertRaises(ApiException):
@@ -121,7 +128,7 @@ class TestDexcomShareApiLogin(unittest.TestCase):
 class TestDexcomShareApiGetLatestGlucoseValues(unittest.TestCase):
     def test_returns_readings(self):
         readings = [
-            {"WT": "/Date(1462404576000)/", "ST": "/Date(1462404576000)/", "DT": "/Date(1462404576000-0700)/", "Value": 120, "Trend": "Flat"},
+            {"WT": "Date(1462404576000)", "ST": "Date(1462404576000)", "DT": "Date(1462404576000-0700)", "Value": 120, "Trend": "Flat"},
         ]
         with requests_mock.Mocker() as m:
             register_login(m)
@@ -133,7 +140,7 @@ class TestDexcomShareApiGetLatestGlucoseValues(unittest.TestCase):
             self.assertEqual(result, readings)
 
     def test_relogs_in_once_on_500_then_succeeds(self):
-        readings = [{"WT": "/Date(1462404576000)/", "ST": "/Date(1462404576000)/", "DT": "/Date(1462404576000)/", "Value": 100, "Trend": "Flat"}]
+        readings = [{"WT": "Date(1462404576000)", "ST": "Date(1462404576000)", "DT": "Date(1462404576000)", "Value": 100, "Trend": "Flat"}]
         with requests_mock.Mocker() as m:
             register_login(m)
             m.post(US_VALUES_URL, [
