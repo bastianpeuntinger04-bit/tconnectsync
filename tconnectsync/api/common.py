@@ -129,6 +129,14 @@ def split_days_range(start_a, end_a, days: int = 5) -> List[Tuple[arrow.Arrow, a
 
     return ranges
 
+# (connect timeout, read timeout) in seconds. No HTTP call anywhere in this
+# codebase set an explicit timeout before this constant existed, so a
+# network-level stall (TCP connect hang, TLS handshake hang, a server that
+# accepts the connection but never responds) blocked the whole process
+# forever: no exception, no log line, no chance for the caller's own
+# retry/backoff to ever run. requests has no default timeout of its own.
+DEFAULT_REQUEST_TIMEOUT_SECONDS = (10, 30)
+
 class ApiException(Exception):
     def __init__(self, status_code, text, *args, **kwargs):
         self.status_code = status_code

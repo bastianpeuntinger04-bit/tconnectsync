@@ -124,7 +124,7 @@ class FakeNightscout:
 class FakeTandemSession:
     def __init__(self, pump_logs):
         self.pump_logs = pump_logs
-    def get(self, url, data=None, headers=None):
+    def get(self, url, data=None, headers=None, timeout=None):
         if '/reports/bff/pumper/' in url:
             return _Resp(200, PUMPER)
         if '/reports/bff/pump-logs/' in url:

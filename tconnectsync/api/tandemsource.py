@@ -24,7 +24,7 @@ from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
 
 
 from ..util import timeago, cap_length
-from .common import parse_ymd_date, base_headers, base_session, ApiException, ApiLoginException
+from .common import parse_ymd_date, base_headers, base_session, ApiException, ApiLoginException, DEFAULT_REQUEST_TIMEOUT_SECONDS
 from .. import secret
 from ..secret import CACHE_CREDENTIALS, CACHE_CREDENTIALS_PATH, TIMEZONE_NAME
 from ..eventparser.generic import Events
@@ -264,8 +264,9 @@ class TandemSourceApi:
             return True
 
         with base_session() as s:
-            logger.info("LOGIN STEP 0: GET %s" % self.LOGIN_PAGE_URL)
-            initial = s.get(self.LOGIN_PAGE_URL, headers=base_headers())
+            logger.info("LOGIN STEP 0: before GET %s (timeout=%s)" % (self.LOGIN_PAGE_URL, DEFAULT_REQUEST_TIMEOUT_SECONDS))
+            initial = s.get(self.LOGIN_PAGE_URL, headers=base_headers(), timeout=DEFAULT_REQUEST_TIMEOUT_SECONDS)
+            logger.info("LOGIN STEP 0: after GET, response received")
             logger.info("LOGIN STEP 0 response: url=%s status=%s content-type=%s" % (
                 self.LOGIN_PAGE_URL, initial.status_code, initial.headers.get('Content-Type')))
 
@@ -275,7 +276,7 @@ class TandemSourceApi:
             }
 
             logger.info("LOGIN STEP 1: POST %s" % self.LOGIN_API_URL)
-            req = s.post(self.LOGIN_API_URL, json=data, headers={'Referer': self.LOGIN_PAGE_URL, **base_headers()}, allow_redirects=False)
+            req = s.post(self.LOGIN_API_URL, json=data, headers={'Referer': self.LOGIN_PAGE_URL, **base_headers()}, allow_redirects=False, timeout=DEFAULT_REQUEST_TIMEOUT_SECONDS)
             logger.info("LOGIN STEP 1 response: url=%s status=%s content-type=%s" % (
                 self.LOGIN_API_URL, req.status_code, req.headers.get('Content-Type')))
 
@@ -328,7 +329,8 @@ class TandemSourceApi:
             oidc_step1 = s.get(
                 authorization_endpoint + '?' + urllib.parse.urlencode(oidc_step1_params),
                 headers={'Referer': self.LOGIN_PAGE_URL, **base_headers()},
-                allow_redirects=True
+                allow_redirects=True,
+                timeout=DEFAULT_REQUEST_TIMEOUT_SECONDS
             )
             logger.info("LOGIN STEP 2 response: url=%s status=%s content-type=%s" % (
                 authorization_endpoint, oidc_step1.status_code, oidc_step1.headers.get('Content-Type')))
@@ -355,7 +357,7 @@ class TandemSourceApi:
             oidc_step2 = s.post(token_endpoint, data=oidc_step2_token_data, headers={
                 'Content-Type': 'application/x-www-form-urlencoded',
                 **base_headers()
-            })
+            }, timeout=DEFAULT_REQUEST_TIMEOUT_SECONDS)
             logger.info("LOGIN STEP 3 response: url=%s status=%s content-type=%s" % (
                 token_endpoint, oidc_step2.status_code, oidc_step2.headers.get('Content-Type')))
 
@@ -389,7 +391,7 @@ class TandemSourceApi:
         id_token = self.idToken
 
         logger.info("LOGIN STEP 4: GET %s" % self.TDC_OIDC_JWKS_URL)
-        jwks_response = self.loginSession.get(self.TDC_OIDC_JWKS_URL)
+        jwks_response = self.loginSession.get(self.TDC_OIDC_JWKS_URL, timeout=DEFAULT_REQUEST_TIMEOUT_SECONDS)
         logger.info("LOGIN STEP 4 response: url=%s status=%s content-type=%s" % (
             self.TDC_OIDC_JWKS_URL, jwks_response.status_code, jwks_response.headers.get('Content-Type')))
 
@@ -593,7 +595,7 @@ class TandemSourceApi:
     def _get(self, endpoint: str, query: dict) -> Any:
         url = self.SOURCE_URL + endpoint
         logger.info("API REQUEST: GET %s" % url)
-        r = base_session().get(url, data=query, headers=self.api_headers())
+        r = base_session().get(url, data=query, headers=self.api_headers(), timeout=DEFAULT_REQUEST_TIMEOUT_SECONDS)
         logger.info("API RESPONSE: url=%s status=%s content-type=%s" % (
             url, r.status_code, r.headers.get('Content-Type')))
 

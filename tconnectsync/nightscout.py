@@ -9,7 +9,7 @@ import logging
 from urllib.parse import urljoin
 from typing import Optional, Union
 
-from .api.common import ApiException
+from .api.common import ApiException, DEFAULT_REQUEST_TIMEOUT_SECONDS
 from .parser.nightscout import ENTERED_BY
 
 # Anything arrow.get() accepts for the date filters / timestamps passed around
@@ -67,6 +67,7 @@ class NightscoutApi:
 		(see COLD_START_RETRY_* above). Logs every attempt, not just the
 		final one, so a cold start is visible in the logs as a handled
 		retry sequence rather than a bare error."""
+		kwargs.setdefault('timeout', DEFAULT_REQUEST_TIMEOUT_SECONDS)
 		attempts = len(COLD_START_RETRY_DELAYS_SECONDS) + 1
 		r: requests.Response
 		for attempt in range(attempts):
