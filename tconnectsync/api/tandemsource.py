@@ -591,7 +591,11 @@ class TandemSourceApi:
         }
 
     def _get(self, endpoint: str, query: dict) -> Any:
-        r = base_session().get(self.SOURCE_URL + endpoint, data=query, headers=self.api_headers())
+        url = self.SOURCE_URL + endpoint
+        logger.info("API REQUEST: GET %s" % url)
+        r = base_session().get(url, data=query, headers=self.api_headers())
+        logger.info("API RESPONSE: url=%s status=%s content-type=%s" % (
+            url, r.status_code, r.headers.get('Content-Type')))
 
         if r.status_code != 200:
             raise ApiException(r.status_code, "TandemSourceApi HTTP %s response: %s" % (str(r.status_code), r.text))
