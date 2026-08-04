@@ -5,7 +5,7 @@ from typing import List, Optional, TypedDict
 
 import requests
 
-from .common import ApiException, ApiLoginException
+from .common import ApiException, ApiLoginException, DEFAULT_REQUEST_TIMEOUT_SECONDS
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +90,7 @@ class DexcomShareApi:
         self.login()
 
     def _post(self, path: str, json: Optional[dict] = None, params: Optional[dict] = None) -> requests.Response:
-        return self._session.post(self.base_url + path, headers=self._HEADERS, json=json, params=params)
+        return self._session.post(self.base_url + path, headers=self._HEADERS, json=json, params=params, timeout=DEFAULT_REQUEST_TIMEOUT_SECONDS)
 
     @staticmethod
     def _error_detail(r: requests.Response) -> str:
