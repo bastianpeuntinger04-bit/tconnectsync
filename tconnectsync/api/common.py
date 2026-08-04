@@ -135,7 +135,22 @@ def split_days_range(start_a, end_a, days: int = 5) -> List[Tuple[arrow.Arrow, a
 # accepts the connection but never responds) blocked the whole process
 # forever: no exception, no log line, no chance for the caller's own
 # retry/backoff to ever run. requests has no default timeout of its own.
-DEFAULT_REQUEST_TIMEOUT_SECONDS = (10, 30)
+#
+# The connect value also governs how long a stalled *TLS handshake* is
+# allowed to take, not just the initial TCP connect -- confirmed against a
+# live failure where GET https://sso.tandemdiabetes.com/ intermittently
+# hung and then raised "ReadTimeoutError: ... (read timeout=10)" using the
+# *connect* value (10s at the time) rather than the read value (30s).
+# Reproduced directly: a raw TCP server that accepts the connection but
+# never engages in the TLS handshake at all reliably raises exactly that
+# -- ReadTimeoutError labeled with the connect timeout -- because urllib3
+# performs the handshake read under the connect-phase socket timeout and
+# labels the resulting exception as a read timeout regardless. So a
+# connect value that's tight for TLS handshake completion under transient
+# load (observed on Render's free tier, which throttles CPU) surfaces
+# confusingly as a "read" timeout. 20s connect gives real headroom for an
+# occasionally slow handshake; 30s read is unchanged and unrelated to this.
+DEFAULT_REQUEST_TIMEOUT_SECONDS = (20, 30)
 
 class ApiException(Exception):
     def __init__(self, status_code, text, *args, **kwargs):
