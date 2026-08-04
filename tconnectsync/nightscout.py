@@ -19,6 +19,13 @@ DateLike = Union[str, datetime.datetime, arrow.Arrow]
 def format_datetime(date: DateLike) -> str:
 	return arrow.get(date).isoformat()
 
+def _ms_timestamp() -> str:
+	"""Millisecond-precision local time, independent of the global logging
+	format's %(asctime)s (which this project configures without msecs) --
+	needed to see exactly how tightly spaced a burst of Nightscout requests
+	within one sync cycle actually is."""
+	return datetime.datetime.now().strftime('%H:%M:%S.%f')[:-3]
+
 def time_range(field_name: str, start_time: Optional[DateLike], end_time: Optional[DateLike]) -> str:
 	def fmt(date: DateLike) -> str:
 		ret = format_datetime(date)
@@ -78,21 +85,49 @@ class NightscoutApi:
 		self.secret = secret
 		self.verify = False if skip_verify else None
 		self.ignore_conn_errors = ignore_conn_errors
+		# Total HTTP attempts sent by this instance since it was created
+		# (effectively since process start, since one instance is built in
+		# main() and reused for the whole --auto-update lifetime). Every
+		# retry attempt counts separately, since each is a real request on
+		# the wire and each one counts against Nightscout's rate limit.
+		self._request_count = 0
+		# Epoch seconds until which a prior 429's Retry-After told us
+		# Nightscout is rate-limited. A single sync cycle makes ~12+
+		# sequential Nightscout calls (see the per-processor dedup GETs);
+		# without this, each one that lands inside an active rate-limit
+		# window would independently hit 429 and wait out its own
+		# Retry-After, potentially compounding to many times the actual
+		# window length. Checked once up front instead.
+		self._rate_limited_until: Optional[float] = None
 
-	@staticmethod
-	def _log_request(method: str, url: str) -> None:
-		logger.info("NIGHTSCOUT REQUEST: %s %s" % (method, url))
+	def _log_request(self, method: str, url: str) -> None:
+		self._request_count += 1
+		logger.info("NIGHTSCOUT REQUEST #%d @ %s: %s %s" % (
+			self._request_count, _ms_timestamp(), method, url))
 
 	@staticmethod
 	def _log_response(url: str, r: requests.Response) -> None:
-		logger.info("NIGHTSCOUT RESPONSE: url=%s status=%s content-type=%s" % (
-			url, r.status_code, r.headers.get('Content-Type')))
+		logger.info("NIGHTSCOUT RESPONSE @ %s: url=%s status=%s content-type=%s" % (
+			_ms_timestamp(), url, r.status_code, r.headers.get('Content-Type')))
+
+	def _wait_if_already_rate_limited(self) -> None:
+		if self._rate_limited_until is None:
+			return
+		remaining = self._rate_limited_until - time.time()
+		if remaining > 0:
+			logger.warning(
+				"Nightscout is still within a previously-seen rate-limit window; "
+				"waiting %.0fs before this request instead of hitting another 429" % remaining)
+			time.sleep(remaining)
+		self._rate_limited_until = None
 
 	def _request(self, method: str, url: str, **kwargs) -> requests.Response:
 		"""Issues one HTTP request, retrying with backoff on 429/502/503/504
 		(see RETRYABLE_STATUS_CODES above). Logs every attempt, not just the
 		final one, so a retry sequence is visible in the logs as handled
 		rather than a bare error."""
+		self._wait_if_already_rate_limited()
+
 		kwargs.setdefault('timeout', DEFAULT_REQUEST_TIMEOUT_SECONDS)
 		attempts = len(COLD_START_RETRY_DELAYS_SECONDS) + 1
 		r: requests.Response
@@ -106,6 +141,8 @@ class NightscoutApi:
 
 			if attempt < attempts - 1:
 				delay, delay_source = self._retry_delay(r, attempt)
+				if r.status_code == 429:
+					self._rate_limited_until = time.time() + delay
 				logger.warning(
 					"Nightscout %s %s returned HTTP %d (attempt %d/%d); retrying in %.0fs (%s)" % (
 						method, url, r.status_code, attempt + 1, attempts, delay, delay_source))
