@@ -132,6 +132,50 @@ class TestNightscoutColdStartRetry(unittest.TestCase):
                 self.ns.upload_entry({'foo': 'bar'})
             self.assertEqual(m.call_count, len(COLD_START_RETRY_DELAYS_SECONDS) + 1)
 
+    def test_rate_limit_gate_applies_to_next_unrelated_call(self):
+        # A sync cycle makes many sequential, unrelated Nightscout calls
+        # (one dedup GET per event processor, then per-entry upload POSTs).
+        # Once one of them has been told by Retry-After that Nightscout is
+        # rate-limited, the next one -- even for a completely different
+        # entity -- should wait out the remainder up front instead of also
+        # hitting a 429 and retrying independently.
+        with requests_mock.Mocker() as m:
+            m.post(requests_mock.ANY, [
+                {'status_code': 429, 'text': 'Too Many Requests', 'headers': {'Retry-After': '5'}},
+                {'status_code': 200, 'json': {}},
+            ])
+            self.ns.upload_entry({'foo': 'bar'})
+            self.mock_sleep.assert_called_once_with(5.0)
+            self.mock_sleep.reset_mock()
+            calls_before_second = m.call_count
+
+            m.post(requests_mock.ANY, [{'status_code': 200, 'json': {}}])
+            self.ns.upload_entry({'baz': 'qux'})
+
+        self.assertEqual(self.mock_sleep.call_count, 1)
+        (slept_seconds,), _ = self.mock_sleep.call_args
+        self.assertAlmostEqual(slept_seconds, 5.0, delta=1.0)
+        # Exactly one POST for the second call -- it waited via the gate
+        # instead of hitting 429 again.
+        self.assertEqual(m.call_count - calls_before_second, 1)
+
+    def test_expired_rate_limit_gate_does_not_wait(self):
+        with requests_mock.Mocker() as m:
+            m.post(requests_mock.ANY, [
+                {'status_code': 429, 'text': 'Too Many Requests', 'headers': {'Retry-After': '5'}},
+                {'status_code': 200, 'json': {}},
+            ])
+            self.ns.upload_entry({'foo': 'bar'})
+            # Simulate the gate having already expired by the time of the
+            # next call, rather than actually waiting 5 real seconds.
+            self.ns._rate_limited_until = 0
+            self.mock_sleep.reset_mock()
+
+            m.post(requests_mock.ANY, [{'status_code': 200, 'json': {}}])
+            self.ns.upload_entry({'baz': 'qux'})
+
+        self.mock_sleep.assert_not_called()
+
 
 if __name__ == '__main__':
     unittest.main()
