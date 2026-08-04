@@ -20,6 +20,7 @@ from .sync.tandemsource.process import ProcessTimeRange as TandemSourceProcessTi
 from .check import check_login
 from .nightscout import NightscoutApi
 from .features import DEFAULT_FEATURES, ALL_FEATURES
+from .util.render_healthcheck import maybe_start_health_server
 
 try:
     from .secret import (
@@ -73,6 +74,8 @@ def main(*args, **kwargs):
             level=logging.INFO,
             format='%(asctime)s %(levelname)-8s %(message)s',
             datefmt='%Y-%m-%d %H:%M:%S')
+
+    maybe_start_health_server()
 
     if args.auto_update and (args.start_date or args.end_date):
         raise Exception('Auto-update cannot be used with start/end date')
