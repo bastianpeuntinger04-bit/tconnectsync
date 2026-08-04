@@ -1,12 +1,18 @@
 #!/usr/bin/env python3
-"""Tests for NightscoutApi's cold-start retry behavior (502/503/504)."""
+"""Tests for NightscoutApi's retry behavior (429/502/503/504)."""
 
 import unittest
+from email.utils import format_datetime
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 import requests_mock
 
-from tconnectsync.nightscout import NightscoutApi, COLD_START_RETRY_DELAYS_SECONDS
+from tconnectsync.nightscout import (
+    NightscoutApi,
+    COLD_START_RETRY_DELAYS_SECONDS,
+    MAX_RETRY_AFTER_SECONDS,
+)
 from tconnectsync.api.common import ApiException
 
 NS_URL = 'https://my-nightscout.example.com/'
@@ -77,6 +83,54 @@ class TestNightscoutColdStartRetry(unittest.TestCase):
             ])
             self.ns.upload_entry({'foo': 'bar'})
             self.assertEqual(m.call_count, 2)
+
+    def test_429_without_retry_after_uses_fixed_schedule(self):
+        with requests_mock.Mocker() as m:
+            m.post(requests_mock.ANY, [
+                {'status_code': 429, 'text': 'Too Many Requests'},
+                {'status_code': 200, 'json': {}},
+            ])
+            self.ns.upload_entry({'foo': 'bar'})
+            self.assertEqual(m.call_count, 2)
+        self.mock_sleep.assert_called_once_with(COLD_START_RETRY_DELAYS_SECONDS[0])
+
+    def test_429_with_integer_retry_after_is_respected(self):
+        with requests_mock.Mocker() as m:
+            m.post(requests_mock.ANY, [
+                {'status_code': 429, 'text': 'Too Many Requests', 'headers': {'Retry-After': '17'}},
+                {'status_code': 200, 'json': {}},
+            ])
+            self.ns.upload_entry({'foo': 'bar'})
+        self.mock_sleep.assert_called_once_with(17.0)
+
+    def test_429_with_http_date_retry_after_is_respected(self):
+        target = datetime.now(timezone.utc) + timedelta(seconds=12)
+        with requests_mock.Mocker() as m:
+            m.post(requests_mock.ANY, [
+                {'status_code': 429, 'text': 'Too Many Requests', 'headers': {'Retry-After': format_datetime(target, usegmt=True)}},
+                {'status_code': 200, 'json': {}},
+            ])
+            self.ns.upload_entry({'foo': 'bar'})
+        self.assertEqual(self.mock_sleep.call_count, 1)
+        (slept_seconds,), _ = self.mock_sleep.call_args
+        # Allow a couple seconds of slack for test execution time.
+        self.assertAlmostEqual(slept_seconds, 12.0, delta=3.0)
+
+    def test_429_retry_after_is_capped_at_max(self):
+        with requests_mock.Mocker() as m:
+            m.post(requests_mock.ANY, [
+                {'status_code': 429, 'text': 'Too Many Requests', 'headers': {'Retry-After': str(int(MAX_RETRY_AFTER_SECONDS) + 600)}},
+                {'status_code': 200, 'json': {}},
+            ])
+            self.ns.upload_entry({'foo': 'bar'})
+        self.mock_sleep.assert_called_once_with(MAX_RETRY_AFTER_SECONDS)
+
+    def test_persistent_429_exhausts_retries_then_raises(self):
+        with requests_mock.Mocker() as m:
+            m.post(requests_mock.ANY, status_code=429, text='Too Many Requests')
+            with self.assertRaises(ApiException):
+                self.ns.upload_entry({'foo': 'bar'})
+            self.assertEqual(m.call_count, len(COLD_START_RETRY_DELAYS_SECONDS) + 1)
 
 
 if __name__ == '__main__':

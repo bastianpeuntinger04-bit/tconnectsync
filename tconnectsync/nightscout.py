@@ -7,7 +7,7 @@ import arrow
 import logging
 
 from urllib.parse import urljoin
-from typing import Optional, Union
+from typing import Optional, Tuple, Union
 
 from .api.common import ApiException, DEFAULT_REQUEST_TIMEOUT_SECONDS
 from .parser.nightscout import ENTERED_BY
@@ -38,12 +38,38 @@ def time_range(field_name: str, start_time: Optional[DateLike], end_time: Option
 # Render's free tier sleeps a service after ~15 min idle; the first request
 # after that wakes it, and Render's own proxy -- not Nightscout -- answers
 # with one of these as an HTML page while the app boots (typically 20-50s).
-COLD_START_RETRY_STATUS_CODES = (502, 503, 504)
+# 429 is a different failure entirely (Nightscout's own rate limiting, seen
+# as text/plain "Too Many Requests" rather than Render's HTML error pages --
+# most likely triggered by a burst of individual upload_entry() POSTs, one
+# per new treatment, with no pacing between them) but the same retry-in-place
+# approach applies, preferring the server's own Retry-After when it sends one.
+RETRYABLE_STATUS_CODES = (429, 502, 503, 504)
 # Total ~37s of backoff across up to 4 retries (5 attempts total), chosen to
 # cover a typical Render free-tier cold start within a single sync cycle
 # rather than losing already-fetched Tandem data to the outer autoupdate
-# poll-cycle retry, which would also force a fresh Tandem login.
+# poll-cycle retry, which would also force a fresh Tandem login. Used as-is
+# for 502/503/504, and as the fallback for 429 when no Retry-After is sent.
 COLD_START_RETRY_DELAYS_SECONDS = (2, 5, 10, 20)
+# Upper bound on a server-supplied Retry-After, so a misconfigured or
+# malicious value can't stall a sync cycle for an unreasonable time.
+MAX_RETRY_AFTER_SECONDS = 300.0
+
+
+def _parse_retry_after(value: str) -> Optional[float]:
+	"""Parses a Retry-After header value: either an integer number of
+	seconds, or an HTTP-date (RFC 7231 7.1.3). Returns None if unparseable."""
+	value = value.strip()
+	if value.isdigit():
+		return float(value)
+	try:
+		from email.utils import parsedate_to_datetime
+		dt = parsedate_to_datetime(value)
+	except (TypeError, ValueError):
+		return None
+	if dt is None:
+		return None
+	now = datetime.datetime.now(dt.tzinfo) if dt.tzinfo else datetime.datetime.utcnow()
+	return max((dt - now).total_seconds(), 0.0)
 
 logger = logging.getLogger(__name__)
 class NightscoutApi:
@@ -63,10 +89,10 @@ class NightscoutApi:
 			url, r.status_code, r.headers.get('Content-Type')))
 
 	def _request(self, method: str, url: str, **kwargs) -> requests.Response:
-		"""Issues one HTTP request, retrying with backoff on 502/503/504
-		(see COLD_START_RETRY_* above). Logs every attempt, not just the
-		final one, so a cold start is visible in the logs as a handled
-		retry sequence rather than a bare error."""
+		"""Issues one HTTP request, retrying with backoff on 429/502/503/504
+		(see RETRYABLE_STATUS_CODES above). Logs every attempt, not just the
+		final one, so a retry sequence is visible in the logs as handled
+		rather than a bare error."""
 		kwargs.setdefault('timeout', DEFAULT_REQUEST_TIMEOUT_SECONDS)
 		attempts = len(COLD_START_RETRY_DELAYS_SECONDS) + 1
 		r: requests.Response
@@ -75,17 +101,31 @@ class NightscoutApi:
 			r = getattr(requests, method.lower())(url, **kwargs)
 			self._log_response(url, r)
 
-			if r.status_code not in COLD_START_RETRY_STATUS_CODES:
+			if r.status_code not in RETRYABLE_STATUS_CODES:
 				return r
 
 			if attempt < attempts - 1:
-				delay = COLD_START_RETRY_DELAYS_SECONDS[attempt]
+				delay, delay_source = self._retry_delay(r, attempt)
 				logger.warning(
-					"Nightscout %s %s returned HTTP %d (attempt %d/%d); retrying in %ds "
-					"(likely a Render free-tier cold start)" % (
-						method, url, r.status_code, attempt + 1, attempts, delay))
+					"Nightscout %s %s returned HTTP %d (attempt %d/%d); retrying in %.0fs (%s)" % (
+						method, url, r.status_code, attempt + 1, attempts, delay, delay_source))
 				time.sleep(delay)
 		return r
+
+	@staticmethod
+	def _retry_delay(r: requests.Response, attempt: int) -> Tuple[float, str]:
+		"""Picks the retry delay for a retryable response: the server's own
+		Retry-After when present and parseable (authoritative -- it knows its
+		own rate-limit window, we don't), capped at MAX_RETRY_AFTER_SECONDS;
+		otherwise the fixed cold-start backoff schedule."""
+		retry_after = r.headers.get('Retry-After')
+		if retry_after:
+			parsed = _parse_retry_after(retry_after)
+			if parsed is not None:
+				capped = min(parsed, MAX_RETRY_AFTER_SECONDS)
+				return capped, "server-supplied Retry-After%s" % (
+					" capped at %.0fs" % MAX_RETRY_AFTER_SECONDS if parsed > MAX_RETRY_AFTER_SECONDS else "")
+		return COLD_START_RETRY_DELAYS_SECONDS[attempt], "likely a Render free-tier cold start" if r.status_code != 429 else "no Retry-After header sent"
 
 	def upload_entry(self, ns_format: dict, entity: str = 'treatments') -> None:
 		url = urljoin(self.url, 'api/v1/' + entity + '?api_secret=' + self.secret)
