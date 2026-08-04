@@ -81,6 +81,7 @@ class _Resp:
         self.status_code = status
         self._data = [] if data is None else data
         self.text = json.dumps(self._data)
+        self.headers = {'Content-Type': 'application/json'}
     def json(self):
         return self._data
 
